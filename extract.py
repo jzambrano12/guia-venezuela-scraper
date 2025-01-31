@@ -9,7 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 # Configuración de Selenium
 options = webdriver.ChromeOptions()
-# options.add_argument("--headless")  # Ejecución sin interfaz gráfica
+options.add_argument("--headless")  # Ejecución sin interfaz gráfica
 options.add_argument("--disable-gpu")
 options.add_argument("--no-sandbox")
 options.add_argument("--window-size=1920,1080")
@@ -61,6 +61,7 @@ professions = [
     "tecnicos+en+sonido+en+vivo", "tecnicos+en+seguridad+electronica",
     "jardineros+de+paisajismo", "traductores+jurados", "organizadores+de+eventos+corporativos",
     "instructores+de+yoga+prenatal", "asesores+inmobiliarios+comerciales"
+    "electricistas", "plomeros", "carpinteros", "albañiles", "mecanicos"
 ]
 
 base_url = "https://guiavenezuela.com.ve/buscar.php?c={profession}&localidad_busca=Maracaibo%2C+Zulia&idLocalidad_busca=366&submit="
@@ -70,18 +71,18 @@ def extract_phone_number(driver, phone_id):
     try:
         # Limpiar cualquier iframe existente antes de empezar
         driver.execute_script("if(typeof $.fancybox !== 'undefined') { $.fancybox.close(); }")
-        time.sleep(2)
+        time.sleep(1)
         
         # Encontrar el botón específico por ID
         phone_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, phone_id))
         )
         driver.execute_script("arguments[0].scrollIntoView(true);", phone_button)
-        time.sleep(2)
+        time.sleep(1)
         
         # Hacer clic usando JavaScript
         driver.execute_script("arguments[0].click();", phone_button)
-        time.sleep(2)
+        time.sleep(1)
         
         # Esperar a que el iframe esté presente
         iframe = WebDriverWait(driver, 10).until(
@@ -90,7 +91,7 @@ def extract_phone_number(driver, phone_id):
         
         # Cambiar al iframe
         driver.switch_to.frame(iframe)
-        time.sleep(2)
+        time.sleep(1)
         
         # Obtener los números
         phone_elements = WebDriverWait(driver, 10).until(
@@ -133,7 +134,10 @@ def extract_professionals_data(driver, url):
     while retry_count < max_retries:
         try:
             driver.get(url)
-            time.sleep(3)
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'div.e'))
+            )
+            time.sleep(1)
             break
         except Exception as e:
             print(f"Error loading URL (attempt {retry_count + 1}/{max_retries}): {str(e)}")
@@ -141,6 +145,11 @@ def extract_professionals_data(driver, url):
             if retry_count == max_retries:
                 print("Failed to load URL after maximum retries")
                 return []
+            # Reset driver if session is invalid
+            if "invalid session id" in str(e).lower():
+                print("Resetting driver due to invalid session...")
+                driver.quit()
+                driver = webdriver.Chrome(options=options)
             time.sleep(5)
     
     professionals = []
@@ -204,6 +213,7 @@ def extract_professionals_data(driver, url):
 def main():
     driver = webdriver.Chrome(options=options)
     output_csv_path = "results.csv"
+    last_url_time = time.time()  # Añadir tracking de tiempo
     
     with open(output_csv_path, mode="w", newline="", encoding="utf-8") as csv_file:
         csv_columns = ["url", "profession", "name", "address", "phone", "description"]
@@ -214,7 +224,11 @@ def main():
         total_professionals = 0
         
         for idx, url in enumerate(urls_to_scrape, 1):
+            current_time = time.time()
+            minutes_elapsed = (current_time - last_url_time) / 60
             print(f"\nProcessing URL {idx}/{len(urls_to_scrape)}: {url}")
+            print(f"Time since last URL: {minutes_elapsed:.2f} minutes")
+            last_url_time = current_time  # Actualizar el tiempo para la siguiente iteración
             
             try:
                 profession = url.split("c=")[1].split("&")[0].replace("+", " ")
@@ -236,6 +250,15 @@ def main():
                 
             except Exception as e:
                 print(f"✗ Error processing URL: {str(e)}")
+                # Handle session expiration during processing
+                if "invalid session id" in str(e).lower():
+                    print("Reinitializing driver...")
+                    driver.quit()
+                    driver = webdriver.Chrome(options=options)
+                    time.sleep(2)
+                    # Retry current URL
+                    idx -= 1
+                    continue
             
             csv_file.flush()
             time.sleep(1)  # Delay entre requests
